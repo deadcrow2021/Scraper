@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "console_format": {
+            "format": "%(levelname)s - %(message)s"
+        },
+        "file_format": {
+            "format": "%(asctime)s - %(levelname)s - %(lineno)d - %(message)s"
+        }
+    },
+
+    "handlers": {
+        "console_handler": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "console_format",
+            "stream": "ext://sys.stdout"
+        },
+
+        "info_file_handler": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "level": "WARNING",
+            "formatter": "file_format",
+            "filename": "log/std.log",
+            "encoding": "utf8",
+            "backupCount": 10,
+            "atTime": "datetime.time",
+            "when": "H"
+        }
+    },
+
+    "loggers": {
+        "logger": {
+            "level": "DEBUG",
+            "handlers": ["console_handler", "info_file_handler"],
+            "propagate": "no"
+        }
+    },
+
+    "root": {
+        "level": "INFO",
+        "handlers": ["console_handler", "info_file_handler"]
+    }
+}

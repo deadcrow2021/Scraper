@@ -1,0 +1,7 @@
+virtualenv/
+log/
+__pycache__/
+links*
+sitemap.csv
+debug.txt
+.vscode/
