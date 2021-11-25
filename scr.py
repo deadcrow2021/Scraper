@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import logging.config
+import traceback
 import logging
 import hashlib
 import argparse
@@ -414,7 +415,17 @@ def main():
     redefine_input_url()
 
     while index == 0 or index < number_of_pages:
-        page = pages[index]
+        try:
+            page = pages[index]
+        except Exception:
+            if index == len(pages):
+                logger.info('There are fewer links on'
+                            'the site than you entered')
+                break
+            else:
+                logger.info('---ERROR---')
+                logger.error(traceback.format_exc())
+                break
         page_parsing(page)
         if args.pages == 0 and not args.onepage:
             number_of_pages = len(pages)
