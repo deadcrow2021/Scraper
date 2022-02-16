@@ -4,13 +4,13 @@ import logging.config
 import logging
 import hashlib
 import asyncio
-import aiohttp
 import argparse
 import time
 import json
 import sys
 import csv
 import os
+import re
 
 import requests
 from pprint import pprint
@@ -58,9 +58,9 @@ docs_formats = [
 links = {}
 url = "/"
 pages = [url]
+used_pages = []
 pages_duplicates = {}
 is_document = False
-index = 0
 internal_docs = 0
 internal_links = 0
 external_links = 0
@@ -102,16 +102,14 @@ async def add_to_links(link, link_type, link_status=None, page=None,
             links.update({link: [link_type, link_status, [page],
                           is_document, error_message]})
             internal_links += 1
-        elif link_status > 0 and links[link][1] == 0:
-            links[link][1] = link_status
-        elif page not in links[link][2] and page is not None:
-            links[link][2].append(page)
+        # elif page not in links[link][2] and page is not None:
+        #     links[link][2].append(page)
     if links[link][1] == 0:
         links[link][1] = requests.get(root + page, verify=False).status_code
     await asyncio.sleep(0)
 
 
-def exclusion(page):
+async def exclusion(page):
     '''Excludes a cpecific page out of parsing'''
     global expage_list
     expage_list_element = 0
@@ -145,9 +143,17 @@ async def add_to_pages(page):
     '''
     if page in pages or any(exclusion in page for exclusion in exdir_list):
         return
-    if exclusion(page):
+    if await exclusion(page):
         return
     pages.append(page)
+    
+    if args.onepage or len(pages) <= 1:
+        return
+    if len(used_pages) >= args.pages and args.pages > 0:
+        return
+
+    tasks = [asyncio.create_task(page_parsing(page))]
+    await asyncio.gather(*tasks)
 
 
 async def delete_from_pages(page):
@@ -157,13 +163,8 @@ async def delete_from_pages(page):
     ----------
     page: str
         internal page to parse
-    index: str
-        integer used to define what
-        page from pages list to parse
     '''
     if pages != [] and page in pages:
-        global index
-        index -= 1
         pages.remove(page)
     await asyncio.sleep(0)
 
@@ -172,12 +173,12 @@ async def find_duplicates(page_code, page):
     '''Find duplicated pages on site'''
     hash = hashlib.sha256()
     hash.update(f'{page_code}'.encode())
-    hash_encode = hash.hexdigest()
-    if hash_encode in pages_duplicates.values():
+    hash = hash.hexdigest()
+    if hash in pages_duplicates.values():
         existing_page = list(pages_duplicates.keys())[list(pages_duplicates \
-                             .values()).index(hash_encode)]
+                             .values()).index(hash)]
         return logger.warning(f'Page {page} is duplicate of page {existing_page}')
-    pages_duplicates.update({page: hash_encode})
+    pages_duplicates.update({page: hash})
     await asyncio.sleep(0)
 
 
@@ -204,9 +205,6 @@ async def page_parsing(page):
         user-defined source page
     page : str
         internal page to parse
-    index : int
-        integer used to define what
-        page from pages list to parse
     internal_docs : int
         counter for determining the number
         of internal documents found
@@ -220,21 +218,19 @@ async def page_parsing(page):
         link found on the page
     '''
     logger.info("Processing " + page)
-    global index, internal_docs
-    error_message = None
+    global internal_docs
+    error_message = ''
+    used_pages.append(page)
 
     try:
-        response = requests.get(root + page, verify=False)
+        response = requests.get(root+page, verify=False)
         status = response.status_code
-        index += 1
 
     except Exception as exc:
         status = 400
         error_message = exc
         logger.error(f'{exc}')
-
-    if index > 1:
-        await add_to_links(page, 0, status, error_message)
+    await add_to_links(page, 0, status, error_message)
 
     if status > 399:
         await delete_from_pages(page)
@@ -251,8 +247,10 @@ async def page_parsing(page):
 
         for a_tag in a_tags:
             status = 0
+            regex1 = re.compile(r'#\w*')
+            regex2 = re.compile(r'\+\d+')
             is_document = False
-            error_message = None
+            error_message = ''
             link = a_tag.get('href')
             if link is None or link == '' \
                or (link in links and page in links[link][2]):
@@ -260,7 +258,7 @@ async def page_parsing(page):
 
             if link[:4] == 'tel:' or link[:4] == 'fax:' \
                or 'mailto' in link or 'maito' in link \
-               or '+' in link or link[0] == '#' or link[-4:] == '.jpg':
+               or regex2.search(link) or regex1.search(link) or link[-4:] == '.jpg':
                 continue
 
             if any(doc_format in link for doc_format in docs_formats):
@@ -294,11 +292,8 @@ async def page_parsing(page):
                         error_message = err
                 await add_to_links(link, 1, status, page, is_document, error_message)
             else:
-                if link[0] != '/':
-                    separator = ''
-                    if page[-1] != '/':
-                        separator = '/'
-                    link = page + separator + link
+                if link[0] != '/' and page[-1] != '/':
+                    link = page + '/' + link
                 if is_document is False:
                     await add_to_pages(link)
                 else:
@@ -350,19 +345,20 @@ def add_links_to_csv():
             if link_properties[1] < 400 and args.errors:
                 continue
             for page in link_properties[2]:
-                link_log.append([page, link, link_properties[1],
-                                 link_properties[0], link_properties[3],
-                                 link_properties[4]])
+                if None not in link_properties:
+                    link_log.append([page, link, link_properties[1],
+                                    link_properties[0], link_properties[3],
+                                    link_properties[4]])
         link_log.sort(key=lambda x: x[0])
         writer.writerows(link_log)
     file.close()
 
 
-def get_number_of_pages():
+async def get_number_of_pages():
     '''Get amount of pages to parse'''
     global number_of_pages
     if args.onepage:
-        page_parsing(url)
+        await page_parsing(url)
         number_of_pages = len(pages)
     else:
         number_of_pages = args.pages
@@ -408,24 +404,20 @@ def setup_logging(default_path='logging.json',
 
 
 async def main():
-    global index, number_of_pages
+    global number_of_pages
     
     # Setup logger config file
     setup_logging()
 
-    async with aiohttp.ClientSession() as session:
-        await add_to_pages(url)
-        get_number_of_pages()
-        redefine_input_url()
+    await get_number_of_pages()
+    redefine_input_url()
+    await page_parsing(url)
 
-        while index == 0 or index < number_of_pages:
-            tasks = []
-            page = pages[index]
-            task = asyncio.create_task(page_parsing(page))
-            tasks.append(task)
-            await asyncio.gather(*tasks)
-            if args.pages == 0 and not args.onepage:
-                number_of_pages = len(pages)
+    if args.onepage:
+        tasks = []
+        for page in pages:
+            tasks.append(asyncio.create_task(page_parsing(page)))
+        await asyncio.gather(*tasks)
 
     if args.map:
         add_to_sitemap_file()

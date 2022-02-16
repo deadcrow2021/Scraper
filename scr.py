@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import logging.config
-import traceback
 import logging
 import hashlib
 import argparse
@@ -10,6 +9,7 @@ import json
 import sys
 import csv
 import os
+import re
 
 import requests
 from pprint import pprint
@@ -93,16 +93,13 @@ def add_to_links(link, link_type, link_status=None, page=None,
             links.update({link: [link_type, link_status, [page],
                           is_document, error_message]})
             external_links += 1
-        else:
-            if page not in links[link][2]:
-                links[link][2].append(page)
+        elif page not in links[link][2]:
+            links[link][2].append(page)
     else:
         if link not in links:
             links.update({link: [link_type, link_status, [page],
                           is_document, error_message]})
             internal_links += 1
-        elif link_status > 0 and links[link][1] == 0:
-            links[link][1] = link_status
         elif page not in links[link][2] and page is not None:
             links[link][2].append(page)
     if links[link][1] == 0:
@@ -169,12 +166,12 @@ def find_duplicates(page_code, page):
     '''Find duplicated pages on site'''
     hash = hashlib.sha256()
     hash.update(f'{page_code}'.encode())
-    hash_encode = hash.hexdigest()
-    if hash_encode in pages_duplicates.values():
+    hash = hash.hexdigest()
+    if hash in pages_duplicates.values():
         existing_page = list(pages_duplicates.keys())[list(pages_duplicates \
-                             .values()).index(hash_encode)]
+                             .values()).index(hash)]
         return logger.warning(f'Page {page} is duplicate of page {existing_page}')
-    pages_duplicates.update({page: hash_encode})
+    pages_duplicates.update({page: hash})
 
 
 def find_empty_pages(page_code):
@@ -246,6 +243,8 @@ def page_parsing(page):
 
         for a_tag in a_tags:
             status = 0
+            regex1 = re.compile(r'#\w*')
+            regex2 = re.compile(r'\+\d+')
             is_document = False
             error_message = None
             link = a_tag.get('href')
@@ -255,7 +254,7 @@ def page_parsing(page):
 
             if link[:4] == 'tel:' or link[:4] == 'fax:' \
                or 'mailto' in link or 'maito' in link \
-               or '+' in link or link[0] == '#' or link[-4:] == '.jpg':
+               or regex2.search(link) or regex1.search(link) or link[-4:] == '.jpg':
                 continue
 
             if any(doc_format in link for doc_format in docs_formats):
@@ -289,11 +288,8 @@ def page_parsing(page):
                         error_message = err
                 add_to_links(link, 1, status, page, is_document, error_message)
             else:
-                if link[0] != '/':
-                    separator = ''
-                    if page[-1] != '/':
-                        separator = '/'
-                    link = page + separator + link
+                if link[0] != '/' and page[-1] != '/':
+                    link = page + '/' + link
                 if is_document is False:
                     add_to_pages(link)
                 else:
@@ -415,18 +411,11 @@ def main():
     redefine_input_url()
 
     while index == 0 or index < number_of_pages:
-        try:
-            page = pages[index]
-        except Exception:
-            if index == len(pages):
-                logger.info('There are fewer links on'
-                            'the site than you entered')
-                break
-            else:
-                logger.info('---ERROR---')
-                logger.error(traceback.format_exc())
-                break
+        page = pages[index]
         page_parsing(page)
+        if index == len(pages):
+            break
+        
         if args.pages == 0 and not args.onepage:
             number_of_pages = len(pages)
 
