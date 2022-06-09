@@ -102,11 +102,12 @@ async def add_to_links(link, link_type, link_status=None, page=None,
             links.update({link: [link_type, link_status, [page],
                           is_document, error_message]})
             internal_links += 1
-        # elif page not in links[link][2] and page is not None:
-        #     links[link][2].append(page)
+        elif link_status > 0 and links[link][1] == 0:
+            links[link][1] = link_status
+        elif page not in links[link][2] and page is not None:
+            links[link][2].append(page)
     if links[link][1] == 0:
         links[link][1] = requests.get(root + page, verify=False).status_code
-    await asyncio.sleep(0)
 
 
 async def exclusion(page):
@@ -146,7 +147,7 @@ async def add_to_pages(page):
     if await exclusion(page):
         return
     pages.append(page)
-    
+
     if args.onepage or len(pages) <= 1:
         return
     if len(used_pages) >= args.pages and args.pages > 0:
@@ -166,7 +167,6 @@ async def delete_from_pages(page):
     '''
     if pages != [] and page in pages:
         pages.remove(page)
-    await asyncio.sleep(0)
 
 
 async def find_duplicates(page_code, page):
@@ -179,7 +179,6 @@ async def find_duplicates(page_code, page):
                              .values()).index(hash)]
         return logger.warning(f'Page {page} is duplicate of page {existing_page}')
     pages_duplicates.update({page: hash})
-    await asyncio.sleep(0)
 
 
 async def find_empty_pages(page_code):
@@ -187,7 +186,6 @@ async def find_empty_pages(page_code):
     empty_page = page_code.find_all(class_=args.empty)
     if len(empty_page) == 0:
         logger.warning('Page is empty or this class is not exist')
-    await asyncio.sleep(0)
 
 
 async def page_parsing(page):
@@ -217,8 +215,8 @@ async def page_parsing(page):
     link : str
         link found on the page
     '''
-    logger.info("Processing " + page)
     global internal_docs
+    logger.info("Processing " + page)
     error_message = ''
     used_pages.append(page)
 
@@ -354,16 +352,6 @@ def add_links_to_csv():
     file.close()
 
 
-async def get_number_of_pages():
-    '''Get amount of pages to parse'''
-    global number_of_pages
-    if args.onepage:
-        await page_parsing(url)
-        number_of_pages = len(pages)
-    else:
-        number_of_pages = args.pages
-
-
 def redefine_input_url():
     '''Redefine url input parameter'''
     global root
@@ -404,12 +392,10 @@ def setup_logging(default_path='logging.json',
 
 
 async def main():
-    global number_of_pages
-    
+
     # Setup logger config file
     setup_logging()
 
-    await get_number_of_pages()
     redefine_input_url()
     await page_parsing(url)
 

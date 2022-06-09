@@ -11,6 +11,8 @@ import csv
 import os
 import re
 
+import concurrent.futures
+
 import requests
 from pprint import pprint
 from bs4 import BeautifulSoup
@@ -50,7 +52,7 @@ exdir_list = args.exdir
 expage_list = args.expage
 root = args.url[0]
 docs_formats = [
-                '.doc', '.dot', '.od', '.pdf', '.csv', '.rtf',
+                '.doc', '.dot', '.od', '.pdf', '.csv', '.rtf', '.PDF',
                 '.RTF', '.txt', '.wps', '.xml', '.dbf', '.dif',
                 '.prn', '.slk', '.xl', '.xps', '.pot', '.pp'
                 ]
@@ -100,6 +102,8 @@ def add_to_links(link, link_type, link_status=None, page=None,
             links.update({link: [link_type, link_status, [page],
                           is_document, error_message]})
             internal_links += 1
+        elif link_status > 0 and links[link][1] == 0:
+            links[link][1] = link_status
         elif page not in links[link][2] and page is not None:
             links[link][2].append(page)
     if links[link][1] == 0:
@@ -181,6 +185,69 @@ def find_empty_pages(page_code):
         logger.warning('Page is empty or this class is not exist')
 
 
+def check_link(page, link):
+    global internal_docs
+    regex1 = re.compile(r'#\w*')
+    regex2 = re.compile(r'\+\d+')
+    status = 0
+    is_document = False
+    error_message = None
+
+    if link is None or link == '' \
+        or (link in links and page in links[link][2]):
+        return
+
+    if link[:4] == 'tel:' or link[:4] == 'fax:' \
+        or 'mailto' in link or 'maito' in link \
+        or regex2.search(link) or regex1.search(link) or link[-4:] == '.jpg':
+        return
+
+    if any(doc_format in link for doc_format in docs_formats):
+        is_document = True
+    if root in link:
+        link = link.replace(root, '')
+
+    if 'http' in link:
+        if link not in links.keys():
+            try:
+                request = requests.get(link, verify=False, timeout=4)
+                status = request.status_code
+
+            except requests.exceptions.SSLError as err:
+                status = 495
+                error_message = err
+            except requests.exceptions.Timeout as err:
+                status = 408
+                error_message = err
+            except requests.exceptions.TooManyRedirects as err:
+                status = 302
+                error_message = err
+            except requests.exceptions.RequestException as err:
+                status = 400
+                error_message = err
+            except requests.exceptions.HTTPError as err:
+                status = 404
+                error_message = err
+            except Exception as err:
+                status = request.status_code
+                error_message = err
+        add_to_links(link, 1, status, page, is_document, error_message)
+    else:
+        if link[0] != '/' and page[-1] != '/':
+            link = page + '/' + link
+        if is_document is False:
+            add_to_pages(link)
+        else:
+            internal_docs += 1
+            try:
+                request = requests.get(root + link,
+                                        verify=False, timeout=4)
+                status = request.status_code
+            except Exception as err:
+                error_message = err
+        add_to_links(link, 0, status, page, is_document, error_message)
+
+
 def page_parsing(page):
     '''This function finds and processes all
        links (including documents) on the site.
@@ -212,7 +279,7 @@ def page_parsing(page):
         link found on the page
     '''
     logger.info("Processing " + page)
-    global index, internal_docs
+    global index
     error_message = None
 
     try:
@@ -240,67 +307,16 @@ def page_parsing(page):
 
         if args.empty:
             find_empty_pages(page_html)
+        
+        all_links_on_page = [lnk.get('href') for lnk in a_tags]
 
-        for a_tag in a_tags:
-            status = 0
-            regex1 = re.compile(r'#\w*')
-            regex2 = re.compile(r'\+\d+')
-            is_document = False
-            error_message = None
-            link = a_tag.get('href')
-            if link is None or link == '' \
-               or (link in links and page in links[link][2]):
-                continue
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = []
+            for page_link in all_links_on_page:
+                futures.append(executor.submit(check_link, page=page, link=page_link))
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
 
-            if link[:4] == 'tel:' or link[:4] == 'fax:' \
-               or 'mailto' in link or 'maito' in link \
-               or regex2.search(link) or regex1.search(link) or link[-4:] == '.jpg':
-                continue
-
-            if any(doc_format in link for doc_format in docs_formats):
-                is_document = True
-            if root in link:
-                link = link.replace(root, '')
-
-            if 'http' in link:
-                if link not in links.keys():
-                    try:
-                        request = requests.get(link, verify=False, timeout=10)
-                        status = request.status_code
-
-                    except requests.exceptions.SSLError as err:
-                        status = 495
-                        error_message = err
-                    except requests.exceptions.Timeout as err:
-                        status = 408
-                        error_message = err
-                    except requests.exceptions.TooManyRedirects as err:
-                        status = 302
-                        error_message = err
-                    except requests.exceptions.RequestException as err:
-                        status = 400
-                        error_message = err
-                    except requests.exceptions.HTTPError as err:
-                        status = 404
-                        error_message = err
-                    except Exception as err:
-                        status = request.status_code
-                        error_message = err
-                add_to_links(link, 1, status, page, is_document, error_message)
-            else:
-                if link[0] != '/' and page[-1] != '/':
-                    link = page + '/' + link
-                if is_document is False:
-                    add_to_pages(link)
-                else:
-                    internal_docs += 1
-                    try:
-                        request = requests.get(root + link,
-                                               verify=False, timeout=10)
-                        status = request.status_code
-                    except Exception as err:
-                        error_message = err
-                add_to_links(link, 0, status, page, is_document, error_message)
     except Exception as exc:
         logger.error('System Error: ' + f'{exc}')
 
