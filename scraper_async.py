@@ -267,9 +267,13 @@ async def page_parsing(page):
             if 'http' in link:
                 if link not in links.keys():
                     try:
-                        request = requests.get(link, verify=False, timeout=10)
+                        request = requests.get(link, verify=False, timeout=4)
+                        request.raise_for_status()
                         status = request.status_code
 
+                    except requests.exceptions.HTTPError as err:
+                        status = 404
+                        error_message = err
                     except requests.exceptions.SSLError as err:
                         status = 495
                         error_message = err
@@ -282,12 +286,6 @@ async def page_parsing(page):
                     except requests.exceptions.RequestException as err:
                         status = 400
                         error_message = err
-                    except requests.exceptions.HTTPError as err:
-                        status = 404
-                        error_message = err
-                    except Exception as err:
-                        status = request.status_code
-                        error_message = err
                 await add_to_links(link, 1, status, page, is_document, error_message)
             else:
                 if link[0] != '/' and page[-1] != '/':
@@ -298,7 +296,7 @@ async def page_parsing(page):
                     internal_docs += 1
                     try:
                         request = requests.get(root + link,
-                                               verify=False, timeout=10)
+                                               verify=False, timeout=4)
                         status = request.status_code
                     except Exception as err:
                         error_message = err
