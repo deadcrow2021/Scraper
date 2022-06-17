@@ -17,7 +17,7 @@ import requests
 from pprint import pprint
 from bs4 import BeautifulSoup
 
-arg_parser = argparse.ArgumentParser(description='A program for site parsing.')
+arg_parser = argparse.ArgumentParser(description='A program for self parsing.')
 arg_parser.add_argument("-p", "--pages", help="Number of pages to parse, "
                         "default is all pages.", default=0, type=int)
 arg_parser.add_argument("-s", "--statistics", help="Add statistics of program "
@@ -30,17 +30,17 @@ arg_parser.add_argument("-o", "--onepage", help="Parse only one page and "
                         "all links on it. If this argument is included, "
                         "--page is ignored.", default=False,
                         action="store_true")
-arg_parser.add_argument("-e", "--errors", help="Outputs errors on site into "
+arg_parser.add_argument("-e", "--errors", help="Outputs errors on self into "
                         "file 'links.csv'.", default=False,
                         action="store_true")
-arg_parser.add_argument("-u", "--url", help="Add site url you "
+arg_parser.add_argument("-u", "--url", help="Add self url you "
                         "want to parse. Required argument. "
                         "Example: https://example.com.",
                         nargs=1, required=True)
 arg_parser.add_argument("--empty", help="Find empty pages "
                         "by the inputted class of HTML tag.")
 arg_parser.add_argument("-d", "--duplicate", help="Find"
-                        "duplicated pages on site.",
+                        "duplicated pages on self.",
                         default=False, action="store_true")
 arg_parser.add_argument("--exdir", help="Excludes the page and the "
                         "directory of nested pages.", nargs="+", default=[])
@@ -50,61 +50,86 @@ args = arg_parser.parse_args()
 
 exdir_list = args.exdir
 expage_list = args.expage
-root = args.url[0]
 docs_formats = [
                 '.doc', '.dot', '.od', '.pdf', '.csv', '.rtf', '.PDF',
                 '.RTF', '.txt', '.wps', '.xml', '.dbf', '.dif',
                 '.prn', '.slk', '.xl', '.xps', '.pot', '.pp'
                 ]
-links = {}
-pages = []
-pages_duplicates = {}
-is_document = False
-index = 0
-internal_docs = 0
-internal_links = 0
-external_links = 0
-url = "/"
+
 start_time = time.time()
 dirName = 'log'
 
 requests.packages.urllib3.disable_warnings()
 
 
-class ProcessPage():
+class ProcessSite():
+    
+    root = args.url[0]
+    
+    def __init__(self):
+        self.url = '/'
+        self.links = {}
+        self.pages = []
+        self.index = 0
+        self.number_of_pages = 0
+        self.pages_duplicates = {}
+        self.internal_docs = 0
+        self.internal_links = 0
+        self.external_links = 0
 
-    def add_to_links(self, link, link_type, link_status=None, page=None,
-                    is_document=False, error_message=None):
-        '''Add to links dictionary information
-        about site links and documents
 
-        Attributes
-        ----------
-        internal_links : int
-            Number of internal links on the site
-        external_links : int
-            Number of external links on the site
-        '''
-        global internal_links, external_links
-        if link_type == 1:
-            if link_status > 0:
-                links.update({link: [link_type, link_status, [page],
-                            is_document, error_message]})
-                external_links += 1
-            elif page not in links[link][2]:
-                links[link][2].append(page)
-        else:
-            if link not in links:
-                links.update({link: [link_type, link_status, [page],
-                            is_document, error_message]})
-                internal_links += 1
-            elif link_status > 0 and links[link][1] == 0:
-                links[link][1] = link_status
-            elif page not in links[link][2] and page is not None:
-                links[link][2].append(page)
-        if links[link][1] == 0:
-            links[link][1] = requests.get(root + page, verify=False).status_code
+    def add_slash(self, string):
+        if string[-1] != '/':
+            return string + '/'
+        return string
 
+
+    def redefine_input_url(self):
+        '''Redefine url input parameter'''
+        self.root = self.add_slash(self.root)
+        self.root = self.root[0:(self.root.find('/', 8))]
+
+
+    def incr_index(self):
+        self.index += 1
+
+
+    def process_page(self):
+
+        site = ProcessSite()
+
+        # Setup logger config file
+        setup_logging()
+        
+        site.pages.append(site.url)
+
+        site.redefine_input_url()
+
+
+        while site.index == 0 or site.index < number_of_pages:
+            page = ProcessPage(site.pages[site.index])
+            print(site.pages[site.index], site.pages[:5], site.index)
+            page.page_parsing()
+            if site.index == len(site.pages):
+                break
+
+            if args.pages == 0 and not args.onepage:
+                number_of_pages = len(site.pages)
+
+        if args.map:
+            add_to_sitemap_file(self.pages)
+        add_links_to_csv(self.links)
+        add_to_debug_file(self.links)
+        if args.statistics:
+            get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
+
+
+
+class ProcessPage(ProcessSite):
+
+    def __init__(self, page):
+        super(ProcessPage, self).__init__()
+        self.page = page
 
     def exclusion(self, page):
         '''Excludes a cpecific page out of parsing'''
@@ -128,57 +153,16 @@ class ProcessPage():
         return any(i == page for i in expage_list)
 
 
-    def add_to_pages(self, page):
-        '''Add site page in pages list
-
-        Attributes
-        ----------
-        page: str
-            internal page to parse
-        pages: list
-            list of site pages
-        '''
-        if page in pages or any(exclusion in page for exclusion in exdir_list):
-            return
-        if self.exclusion(page):
-            return
-        pages.append(page)
-        # time.sleep(0.4)
-
-        # with concurrent.futures.ThreadPoolExecutor() as executor:
-        #     futures = []
-        #     futures.append(executor.submit(page_parsing, page=page))
-        #     for future in concurrent.futures.as_completed(futures):
-        #         future.result()
-
-
-    def delete_from_pages(self, page):
-        '''Deletes page from site pages list
-
-        Attributes
-        ----------
-        page: str
-            internal page to parse
-        index: str
-            integer used to define what
-            page from pages list to parse
-        '''
-        if pages != [] and page in pages:
-            global index
-            index -= 1
-            pages.remove(page)
-
-
     def find_duplicates(self, page_code, page):
-        '''Find duplicated pages on site'''
+        '''Find duplicated pages on self'''
         hash = hashlib.sha256()
         hash.update(f'{page_code}'.encode())
         hash = hash.hexdigest()
-        if hash in pages_duplicates.values():
-            existing_page = list(pages_duplicates.keys())[list(pages_duplicates \
+        if hash in self.pages_duplicates.values():
+            existing_page = list(self.pages_duplicates.keys())[list(self.pages_duplicates \
                                 .values()).index(hash)]
             return logger.warning(f'Page {page} is duplicate of page {existing_page}')
-        pages_duplicates.update({page: hash})
+        self.pages_duplicates.update({page: hash})
 
 
     def find_empty_pages(self, page_code):
@@ -188,8 +172,158 @@ class ProcessPage():
             logger.warning('Page is empty or this class is not exist')
 
 
+    def add_to_links(self, link, link_type, link_status=None, page=None,
+                    is_document=False, error_message=None):
+        '''Add to links dictionary information
+        about self links and documents
+
+        Attributes
+        ----------
+        internal_links : int
+            Number of internal links on the self
+        external_links : int
+            Number of external links on the self
+        '''
+        if link_type == 1:
+            if link_status > 0:
+                self.links.update({link: [link_type, link_status, [page],
+                            is_document, error_message]})
+                self.external_links += 1
+            elif page not in self.links[link][2]:
+                self.links[link][2].append(page)
+        else:
+            if link not in self.links:
+                self.links.update({link: [link_type, link_status, [page],
+                            is_document, error_message]})
+                self.internal_links += 1
+            elif link_status > 0 and self.links[link][1] == 0:
+                self.links[link][1] = link_status
+            elif page not in self.links[link][2] and page is not None:
+                self.links[link][2].append(page)
+        if self.links[link][1] == 0:
+            self.links[link][1] = requests.get(self.root + page, verify=False).status_code
+
+
+    def add_to_pages(self, page):
+        '''Add self page in pages list
+
+        Attributes
+        ----------
+        page: str
+            internal page to parse
+        pages: list
+            list of self pages
+        '''
+        if page in self.pages or any(exclusion in page for exclusion in exdir_list):
+            return
+        if self.exclusion(page):
+            return
+        self.pages.append(page)
+
+
+    def delete_from_pages(self, page):
+        '''Deletes page from self pages list
+
+        Attributes
+        ----------
+        page: str
+            internal page to parse
+        index: str
+            integer used to define what
+            page from pages list to parse
+        '''
+        if self.pages != [] and page in self.pages:
+            # global index
+            self.index -= 1
+            self.pages.remove(page)
+
+
+    def get_number_of_pages(self):
+        '''Get amount of pages to parse'''
+        if args.onepage:
+            self.page_parsing(self.url)
+            self.number_of_pages = len(self.pages)
+        else:
+            self.number_of_pages = args.pages
+
+
+    def page_parsing(self):
+        '''This function finds and processes all
+        links (including documents) on the self.
+
+        Links are divided into internal and external,
+        and added to the links dictionary.
+
+        The internal ones are added separately to the pages list
+
+        Attributes
+        ----------
+        root : str
+            user-defined source page
+        page : str
+            internal page to parse
+        index : int
+            integer used to define what
+            page from pages list to parse
+        error_message : str
+            error message received when requesting a page
+        status : int
+            HTTP status code from request
+        link : str
+            link found on the page
+        '''
+        logger.info("Processing " + self.page)
+        error_message = None
+
+        try:
+            response = requests.get(self.root + self.page, verify=False)
+            status = response.status_code
+            # self.index += 1
+            self.incr_index()
+
+        except Exception as exc:
+            status = 400
+            error_message = exc
+            logger.error(f'{exc}')
+        if self.index > 1:
+            self.add_to_links(self.page, 0, status, error_message)
+
+        if status > 399:
+            self.delete_from_pages(self.page)
+
+        try:
+            page_html = BeautifulSoup(response.text, 'lxml')
+            a_tags = page_html.find_all('a')
+
+            if args.duplicate:
+                self.find_duplicates(page_html, self.page)
+
+            if args.empty:
+                self.find_empty_pages(page_html)
+            
+            all_links_on_page = [lnk.get('href') for lnk in a_tags]
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = []
+                for page_link in all_links_on_page:
+                    link = ProcessLink(self.page, page_link)
+                    futures.append(executor.submit(link.check_link, page=self.page, link=page_link))
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+
+        except Exception as exc:
+            logger.error('System Error: ' + f'{exc}')
+
+
+
+class ProcessLink(ProcessPage):
+
+    def __init__(self, page, link):
+        super(ProcessLink, self).__init__(page)
+        self.link = link
+
+
     def check_link(self, page, link):
-        global internal_docs
         regex1 = re.compile(r'#\w*')
         regex2 = re.compile(r'\+\d+')
         status = 0
@@ -197,7 +331,7 @@ class ProcessPage():
         error_message = None
 
         if link is None or link == '' \
-            or (link in links and page in links[link][2]):
+            or (link in self.links and page in self.links[link][2]):
             return
 
         if link[:4] == 'tel:' or link[:4] == 'fax:' \
@@ -207,11 +341,11 @@ class ProcessPage():
 
         if any(doc_format in link for doc_format in docs_formats):
             is_document = True
-        if root in link:
-            link = link.replace(root, '')
+        if self.root in link:
+            link = link.replace(self.root, '')
 
         if 'http' in link:
-            if link not in links.keys():
+            if link not in self.links.keys():
                 try:
                     request = requests.get(link, verify=False, timeout=4)
                     request.raise_for_status()
@@ -239,9 +373,9 @@ class ProcessPage():
             if is_document is False:
                 self.add_to_pages(link)
             else:
-                internal_docs += 1
+                self.internal_docs += 1
                 try:
-                    request = requests.get(root + link,
+                    request = requests.get(self.root + link,
                                             verify=False, timeout=4)
                     status = request.status_code
                 except Exception as err:
@@ -249,76 +383,7 @@ class ProcessPage():
             self.add_to_links(link, 0, status, page, is_document, error_message)
 
 
-    def page_parsing(self, page):
-        '''This function finds and processes all
-        links (including documents) on the site.
-
-        Links are divided into internal and external,
-        and added to the links dictionary.
-
-        The internal ones are added separately to the pages list
-
-        Attributes
-        ----------
-        root : str
-            user-defined source page
-        page : str
-            internal page to parse
-        index : int
-            integer used to define what
-            page from pages list to parse
-        error_message : str
-            error message received when requesting a page
-        status : int
-            HTTP status code from request
-        link : str
-            link found on the page
-        '''
-        logger.info("Processing " + page)
-        global index
-        error_message = None
-
-        try:
-            response = requests.get(root + page, verify=False)
-            status = response.status_code
-            index += 1
-
-        except Exception as exc:
-            status = 400
-            error_message = exc
-            logger.error(f'{exc}')
-
-        if index > 1:
-            self.add_to_links(page, 0, status, error_message)
-
-        if status > 399:
-            self.delete_from_pages(page)
-
-        try:
-            page_html = BeautifulSoup(response.text, 'lxml')
-            a_tags = page_html.find_all('a')
-
-            if args.duplicate:
-                self.find_duplicates(page_html, page)
-
-            if args.empty:
-                self.find_empty_pages(page_html)
-            
-            all_links_on_page = [lnk.get('href') for lnk in a_tags]
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = []
-                for page_link in all_links_on_page:
-                    futures.append(executor.submit(self.check_link, page=page, link=page_link))
-                for future in concurrent.futures.as_completed(futures):
-                    future.result()
-
-        except Exception as exc:
-            logger.error('System Error: ' + f'{exc}')
-
-
-
-def add_to_sitemap_file():
+def add_to_sitemap_file(pages):
     '''Add to file list of internal pages'''
     with open('sitemap.csv', 'w') as file:
         writer = csv.writer(file)
@@ -327,8 +392,8 @@ def add_to_sitemap_file():
             writer.writerow([page])
 
 
-def add_to_debug_file():
-    '''Add to file all site links.
+def add_to_debug_file(links):
+    '''Add to file all self links.
 
     Output format
     -------------
@@ -342,8 +407,8 @@ def add_to_debug_file():
     f.close()
 
 
-def add_links_to_csv():
-    '''Add to csv file errors on site'''
+def add_links_to_csv(links):
+    '''Add to csv file errors on self'''
     with open('links.csv', 'w') as file:
         link_log = []
         writer = csv.writer(file, delimiter=';')
@@ -362,30 +427,7 @@ def add_links_to_csv():
     file.close()
 
 
-def add_slash(string):
-    if string[-1] != '/':
-        return string + '/'
-    return string
-
-
-def get_number_of_pages():
-    '''Get amount of pages to parse'''
-    global number_of_pages
-    if args.onepage:
-        ProcessPage().page_parsing(url)
-        number_of_pages = len(pages)
-    else:
-        number_of_pages = args.pages
-
-
-def redefine_input_url():
-    '''Redefine url input parameter'''
-    global root
-    root = add_slash(root)
-    root = root[0:(root.find('/', 8))]
-
-
-def get_statistics():
+def get_statistics(pages, internal_docs, internal_links, external_links):
     '''Get statistics of executed program in console'''
     logger.info('Links in pages: {}'.format(len(pages)))
     logger.info('Internal documents: {}'.format(internal_docs))
@@ -418,32 +460,35 @@ def setup_logging(default_path='logging.json',
 
 
 def main():
-    global index, number_of_pages
+    # global index, number_of_pages
+    input_site = ProcessSite()
+    input_site.process_page()
 
-    # Setup logger config file
-    setup_logging()
+    # # Setup logger config file
+    # setup_logging()
 
-    ProcessPage().add_to_pages(url)
-    if args.pages > 1 and not args.onepage:
-        ProcessPage().page_parsing(pages[0])
-    get_number_of_pages()
-    redefine_input_url()
+    # self.pages.append(self.url)
+    # if args.pages > 1 and not args.onepage:
+    #     self.page_parsing(self.pages[0])
+    # self.get_number_of_pages()
+    # self.redefine_input_url()
 
-    while index == 0 or index < number_of_pages:
-        page = pages[index]
-        ProcessPage().page_parsing(page)
-        if index == len(pages):
-            break
-        
-        if args.pages == 0 and not args.onepage:
-            number_of_pages = len(pages)
+    # while self.index == 0 or self.index < number_of_pages:
+    #     page = ProcessPage(self.pages[self.index])
+    #     print(self.pages[self.index], self.pages[:5], self.index)
+    #     page.page_parsing()
+    #     if self.index == len(self.pages):
+    #         break
 
-    if args.map:
-        add_to_sitemap_file()
-    add_links_to_csv()
-    add_to_debug_file()
-    if args.statistics:
-        get_statistics()
+    #     if args.pages == 0 and not args.onepage:
+    #         number_of_pages = len(self.pages)
+
+    # if args.map:
+    #     add_to_sitemap_file(self.pages)
+    # add_links_to_csv(self.links)
+    # add_to_debug_file(self.links)
+    # if args.statistics:
+    #     get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
 
 
 if __name__ == '__main__':
