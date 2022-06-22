@@ -63,20 +63,17 @@ requests.packages.urllib3.disable_warnings()
 
 
 class ProcessSite():
-    
-    root = args.url[0]
-    
-    def __init__(self):
-        self.url = '/'
-        self.links = {}
-        self.pages = []
-        self.index = 0
-        self.number_of_pages = 0
-        self.pages_duplicates = {}
-        self.internal_docs = 0
-        self.internal_links = 0
-        self.external_links = 0
 
+    root = args.url[0]
+    # url = '/'
+    links = []
+    pages = ['/']
+    index = 0
+    number_of_pages = 0
+    pages_duplicates = {}
+    # internal_docs = 0
+    # internal_links = 0
+    # external_links = 0
 
     def add_slash(self, string):
         if string[-1] != '/':
@@ -90,45 +87,47 @@ class ProcessSite():
         self.root = self.root[0:(self.root.find('/', 8))]
 
 
-    def incr_index(self):
-        self.index += 1
-
-
     def process_page(self):
-
-        site = ProcessSite()
-
-        # Setup logger config file
-        setup_logging()
-        
-        site.pages.append(site.url)
-
-        site.redefine_input_url()
-
-
-        while site.index == 0 or site.index < number_of_pages:
-            page = ProcessPage(site.pages[site.index])
-            print(site.pages[site.index], site.pages[:5], site.index)
+        for i in self.pages:
+            page = ProcessPage(self.root, i)
             page.page_parsing()
-            if site.index == len(site.pages):
-                break
+            # print(page.page_links_objects[list(page.page_links_objects.keys())[0]].link)
 
-            if args.pages == 0 and not args.onepage:
-                number_of_pages = len(site.pages)
+    #     site = ProcessSite()
 
-        if args.map:
-            add_to_sitemap_file(self.pages)
-        add_links_to_csv(self.links)
-        add_to_debug_file(self.links)
-        if args.statistics:
-            get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
+    #     # Setup logger config file
+    #     setup_logging()
+        
+    #     site.pages.append(site.url)
+
+    #     site.redefine_input_url()
 
 
+    #     while site.index == 0 or site.index < number_of_pages:
+    #         page = ProcessPage(site.pages[site.index])
+    #         print(site.pages[site.index], site.pages[:5], site.index)
+    #         page.page_parsing()
+    #         if site.index == len(site.pages):
+    #             break
 
-class ProcessPage(ProcessSite):
+    #         if args.pages == 0 and not args.onepage:
+    #             number_of_pages = len(site.pages)
 
-    def __init__(self, page):
-        super(ProcessPage, self).__init__()
+    #     if args.map:
+    #         add_to_sitemap_file(self.pages)
+    #     add_links_to_csv(self.links)
+    #     add_to_debug_file(self.links)
+    #     if args.statistics:
+            # get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
+
+
+
+class ProcessPage():
+
+    page_links_objects = {}
+
+    def __init__(self, root, page):
+        self.root = root
         self.page = page
 
     def exclusion(self, page):
@@ -172,55 +171,6 @@ class ProcessPage(ProcessSite):
             logger.warning('Page is empty or this class is not exist')
 
 
-    def add_to_links(self, link, link_type, link_status=None, page=None,
-                    is_document=False, error_message=None):
-        '''Add to links dictionary information
-        about self links and documents
-
-        Attributes
-        ----------
-        internal_links : int
-            Number of internal links on the self
-        external_links : int
-            Number of external links on the self
-        '''
-        if link_type == 1:
-            if link_status > 0:
-                self.links.update({link: [link_type, link_status, [page],
-                            is_document, error_message]})
-                self.external_links += 1
-            elif page not in self.links[link][2]:
-                self.links[link][2].append(page)
-        else:
-            if link not in self.links:
-                self.links.update({link: [link_type, link_status, [page],
-                            is_document, error_message]})
-                self.internal_links += 1
-            elif link_status > 0 and self.links[link][1] == 0:
-                self.links[link][1] = link_status
-            elif page not in self.links[link][2] and page is not None:
-                self.links[link][2].append(page)
-        if self.links[link][1] == 0:
-            self.links[link][1] = requests.get(self.root + page, verify=False).status_code
-
-
-    def add_to_pages(self, page):
-        '''Add self page in pages list
-
-        Attributes
-        ----------
-        page: str
-            internal page to parse
-        pages: list
-            list of self pages
-        '''
-        if page in self.pages or any(exclusion in page for exclusion in exdir_list):
-            return
-        if self.exclusion(page):
-            return
-        self.pages.append(page)
-
-
     def delete_from_pages(self, page):
         '''Deletes page from self pages list
 
@@ -228,12 +178,8 @@ class ProcessPage(ProcessSite):
         ----------
         page: str
             internal page to parse
-        index: str
-            integer used to define what
-            page from pages list to parse
         '''
         if self.pages != [] and page in self.pages:
-            # global index
             self.index -= 1
             self.pages.remove(page)
 
@@ -279,14 +225,13 @@ class ProcessPage(ProcessSite):
             response = requests.get(self.root + self.page, verify=False)
             status = response.status_code
             # self.index += 1
-            self.incr_index()
 
         except Exception as exc:
             status = 400
             error_message = exc
             logger.error(f'{exc}')
-        if self.index > 1:
-            self.add_to_links(self.page, 0, status, error_message)
+        # if self.index > 1:
+        #     self.add_to_links(self.page, 0, status, error_message)
 
         if status > 399:
             self.delete_from_pages(self.page)
@@ -300,14 +245,12 @@ class ProcessPage(ProcessSite):
 
             if args.empty:
                 self.find_empty_pages(page_html)
-            
-            all_links_on_page = [lnk.get('href') for lnk in a_tags]
 
+            self.page_links_objects = {lnk.get('href'): ProcessLink(self.root, self.page, lnk.get('href')) for lnk in a_tags}
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = []
-                for page_link in all_links_on_page:
-                    link = ProcessLink(self.page, page_link)
-                    futures.append(executor.submit(link.check_link, page=self.page, link=page_link))
+                for page_link in self.page_links_objects:
+                    futures.append(executor.submit(self.page_links_objects[page_link].check_link, page=self.page, link=page_link))
                 for future in concurrent.futures.as_completed(futures):
                     future.result()
 
@@ -316,11 +259,68 @@ class ProcessPage(ProcessSite):
 
 
 
-class ProcessLink(ProcessPage):
+class ProcessLink():
 
-    def __init__(self, page, link):
-        super(ProcessLink, self).__init__(page)
+    links_on_page = {}
+    internal_links = []
+
+    def __init__(self, root, page, link):
+        self.root = root
+        self.page = page
         self.link = link
+        # link_type
+        # link_status
+        # is_document
+        # error_message
+
+
+    def add_to_pages(self, page):
+        '''Add self page in pages list
+
+        Attributes
+        ----------
+        page: str
+            internal page to parse
+        pages: list
+            list of self pages
+        '''
+        if page in self.pages or any(exclusion in page for exclusion in exdir_list):
+            return
+        if self.exclusion(page):
+            return
+        self.pages.append(page)
+
+
+    def add_to_links(self, link, link_type, link_status=None, page=None,
+                    is_document=False, error_message=None):
+        '''Add to links dictionary information
+        about self links and documents
+
+        Attributes
+        ----------
+        internal_links : int
+            Number of internal links on the self
+        external_links : int
+            Number of external links on the self
+        '''
+        if link_type == 1:
+            if link_status > 0:
+                self.links_on_page.update({link: [link_type, link_status, [page],
+                            is_document, error_message]})
+                # self.external_links += 1
+            elif page not in self.links_on_page[link][2]:
+                self.links_on_page[link][2].append(page)
+        else:
+            if link not in self.links_on_page:
+                self.links_on_page.update({link: [link_type, link_status, [page],
+                            is_document, error_message]})
+                # self.internal_links += 1
+            elif link_status > 0 and self.links_on_page[link][1] == 0:
+                self.links_on_page[link][1] = link_status
+            elif page not in self.links_on_page[link][2] and page is not None:
+                self.links_on_page[link][2].append(page)
+        if self.links_on_page[link][1] == 0:
+            self.links_on_page[link][1] = requests.get(self.root + page, verify=False).status_code
 
 
     def check_link(self, page, link):
@@ -331,7 +331,7 @@ class ProcessLink(ProcessPage):
         error_message = None
 
         if link is None or link == '' \
-            or (link in self.links and page in self.links[link][2]):
+            or (link in self.links_on_page and page in self.links_on_page[link][2]):
             return
 
         if link[:4] == 'tel:' or link[:4] == 'fax:' \
@@ -345,7 +345,7 @@ class ProcessLink(ProcessPage):
             link = link.replace(self.root, '')
 
         if 'http' in link:
-            if link not in self.links.keys():
+            if link not in self.links_on_page.keys():
                 try:
                     request = requests.get(link, verify=False, timeout=4)
                     request.raise_for_status()
@@ -368,12 +368,13 @@ class ProcessLink(ProcessPage):
                     error_message = err
             self.add_to_links(link, 1, status, page, is_document, error_message)
         else:
-            if link[0] != '/' and page[-1] != '/':
-                link = page + '/' + link
+            # if link[0] != '/' and page[-1] != '/':
+            #     link = page + '/' + link
             if is_document is False:
-                self.add_to_pages(link)
+                # self.add_to_pages(link)
+                self.internal_links.append(link)
             else:
-                self.internal_docs += 1
+                # self.internal_docs += 1
                 try:
                     request = requests.get(self.root + link,
                                             verify=False, timeout=4)
@@ -381,7 +382,8 @@ class ProcessLink(ProcessPage):
                 except Exception as err:
                     error_message = err
             self.add_to_links(link, 0, status, page, is_document, error_message)
-
+# Link
+######
 
 def add_to_sitemap_file(pages):
     '''Add to file list of internal pages'''
@@ -461,11 +463,11 @@ def setup_logging(default_path='logging.json',
 
 def main():
     # global index, number_of_pages
-    input_site = ProcessSite()
-    input_site.process_page()
+    setup_logging()
 
-    # # Setup logger config file
-    # setup_logging()
+    site = ProcessSite()
+    site.process_page()
+
 
     # self.pages.append(self.url)
     # if args.pages > 1 and not args.onepage:
