@@ -51,7 +51,7 @@ exdir_list = args.exdir
 expage_list = args.expage
 root = args.url[0]
 docs_formats = [
-                '.doc', '.dot', '.od', '.pdf', '.csv', '.rtf',
+                '.doc', '.dot', '.od', '.pdf', '.csv', '.rtf', '.PDF',
                 '.RTF', '.txt', '.wps', '.xml', '.dbf', '.dif',
                 '.prn', '.slk', '.xl', '.xps', '.pot', '.pp'
                 ]
@@ -288,8 +288,10 @@ async def page_parsing(page):
                         error_message = err
                 await add_to_links(link, 1, status, page, is_document, error_message)
             else:
-                if link[0] != '/' and page[-1] != '/':
-                    link = page + '/' + link
+                # print(page, link)
+                
+                # if link[0] != '/' and page[-1] != '/':
+                #     link = page + '/' + link
                 if is_document is False:
                     await add_to_pages(link)
                 else:
@@ -402,6 +404,9 @@ async def main():
         for page in pages:
             tasks.append(asyncio.create_task(page_parsing(page)))
         await asyncio.gather(*tasks)
+
+    print(pages)
+    print(len(pages))
 
     if args.map:
         add_to_sitemap_file()

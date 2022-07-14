@@ -66,6 +66,8 @@ class ScrappedSite():
     def process(self):
         # for internal_link in self.internal_links:
         #     internal_link.process()
+        start = time.time()
+        self.__redefine_input_url()
 
 
         for i in self.pages:
@@ -109,51 +111,15 @@ class ScrappedSite():
                         link_obj.is_document = self.unique_links_objects[link_obj.link].is_document
                         link_obj.error_message = self.unique_links_objects[link_obj.link].error_message
                     # if link_obj.link in list(self.unique_links_objects.keys()):
-                    writer.writerow([page_obj.page, link_obj.link, link_obj.status, link_obj.link_type, link_obj.is_document, link_obj.error_message])
+                    if link_obj.status is not None and link_obj.status >= 400:
+                        writer.writerow([page_obj.page, link_obj.link, link_obj.status, link_obj.link_type, link_obj.is_document, link_obj.error_message])
 
                 # self.all_site_links[page_obj.page] = [link for link in page_obj.page_links_objects.values()]
             # link_log.sort(key=lambda x: x[0])
             # writer.writerows(link_log)
             
-            
+        print(time.time() - start)
 
-
-
-    #     site = ScrappedSite()
-
-    #     # Setup logger config file
-    #     setup_logging()
-        
-    #     site.pages.append(site.url)
-
-    #     site.redefine_input_url()
-
-
-    #     while site.index == 0 or site.index < number_of_pages:
-    #         page = ScrappedPage(site.pages[site.index])
-    #         print(site.pages[site.index], site.pages[:5], site.index)
-    #         page.page_parsing()
-    #         if site.index == len(site.pages):
-    #             break
-
-    #         if args.pages == 0 and not args.onepage:
-    #             number_of_pages = len(site.pages)
-
-    #     if args.map:
-    #         add_to_sitemap_file(self.pages)
-    #     add_links_to_csv(self.links)
-    #     add_to_debug_file(self.links)
-    #     if args.statistics:
-            # get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
-
-# class ScrappedLinks():
-    
-
-# class ScrappedInternalLinks(ScrappedLinks):
-#    external_links = []
-
-# class ScrappedExternalLinks(ScrappedLinks):
-#   internal_links = []
 
 
 class ScrappedPage():
@@ -208,19 +174,6 @@ class ScrappedPage():
     #         logger.warning('Page is empty or this class is not exist')
 
 
-    def delete_from_pages(self, page):
-        '''Deletes page from self pages list
-
-        Attributes
-        ----------
-        page: str
-            internal page to parse
-        '''
-        if self.pages != [] and page in self.pages:
-            self.index -= 1
-            self.pages.remove(page)
-
-
     # def get_number_of_pages(self):
     #     '''Get amount of pages to parse'''
     #     if args.onepage:
@@ -256,24 +209,16 @@ class ScrappedPage():
             link found on the page
         '''
         logger.info("Processing " + self.page)
-        # error_message = None
 
         try:
             response = requests.get(self.__root + self.page, verify=False)
             self.status = response.status_code
-            # self.index += 1
 
         except Exception as exc:
             self.status = 404
             self.error_message = exc
             logger.error(f'{exc}')
             return
-        # if self.index > 1:
-        #     self.add_to_links(self.page, 0, status, error_message)
-
-        # if self.status > 399:
-        #     return
-            # self.delete_from_pages(self.page)
 
         try:
             page_html = BeautifulSoup(response.text, 'lxml')
@@ -301,34 +246,15 @@ class ScrappedPage():
 class ScrappedLink():
 
     links_on_page = {}
-    # internal_links = []
     link_type = None
-    # link_status = 0
     is_document = False
     error_message = ''
-    status = 0
+    status = None
 
     def __init__(self, __root, page, link):
         self.__root = __root
         self.page = page
         self.link = link
-
-
-    def add_to_pages(self, page):
-        '''Add self page in pages list
-
-        Attributes
-        ----------
-        page: str
-            internal page to parse
-        pages: list
-            list of self pages
-        '''
-        # if page in self.pages or any(exclusion in page for exclusion in exdir_list):
-        #     return
-        if self.exclusion(page):
-            return
-        self.pages.append(page)
 
 
     def add_to_links(self, link, link_type, link_status=None, page=None,
@@ -366,9 +292,7 @@ class ScrappedLink():
     def check_link(self):
         regex1 = re.compile(r'#\w*')
         regex2 = re.compile(r'\+\d+')
-        # status = 0
-        # is_document = False
-        # error_message = None
+
 
         if self.link is None or self.link == '' \
             or (self.link in self.links_on_page and self.page in self.links_on_page[self.link][2]):
@@ -391,47 +315,8 @@ class ScrappedLink():
 
         if 'http' in self.link:
             self.link_type = 1
-            if self.link not in self.links_on_page.keys():
-                try:
-                    pass
-                    # request = requests.get(link, verify=False, timeout=4)
-                    # request.raise_for_status()
-                    # status = request.status_code
-
-                except requests.exceptions.HTTPError as err:
-                    status = 404
-                    error_message = err
-                except requests.exceptions.SSLError as err:
-                    status = 495
-                    error_message = err
-                except requests.exceptions.Timeout as err:
-                    status = 408
-                    error_message = err
-                except requests.exceptions.TooManyRedirects as err:
-                    status = 302
-                    error_message = err
-                except requests.exceptions.RequestException as err:
-                    status = 400
-                    error_message = err
-            # self.add_to_links(link, 1, status, page, is_document, error_message)
         else:
             self.link_type = 0
-            # if link[0] != '/' and page[-1] != '/':
-            #     link = page + '/' + link
-            if self.is_document is False:
-                # self.add_to_pages(link)
-                # self.internal_links.append(link)
-                pass
-            else:
-                # self.internal_docs += 1
-                try:
-                    pass
-                    # request = requests.get(self.__root + link,
-                    #                         verify=False, timeout=4)
-                    # status = request.status_code
-                except Exception as err:
-                    error_message = err
-            # self.add_to_links(link, 0, status, page, is_document, error_message)
 
     
     def make_request(self):
@@ -562,7 +447,6 @@ def define_args():
 def setup_logging(default_path='logging.json',
                   default_level=logging.INFO, env_key='LOG_CFG'):
     """Setup logging configuration"""
-    # global logger
     path = default_path
     value = os.getenv(env_key, None)
 
@@ -584,7 +468,6 @@ def setup_logging(default_path='logging.json',
 #     return True
 
 def main():
-    # global index, number_of_pages
     global logger
 
     # logger = setup_logging()
@@ -603,30 +486,6 @@ def main():
     # site.settings = settings
     #site.setup_args()
     site.process()
-
-
-    # self.pages.append(self.url)
-    # if args.pages > 1 and not args.onepage:
-    #     self.page_parsing(self.pages[0])
-    # self.get_number_of_pages()
-    # self.redefine_input_url()
-
-    # while self.index == 0 or self.index < number_of_pages:
-    #     page = ScrappedPage(self.pages[self.index])
-    #     print(self.pages[self.index], self.pages[:5], self.index)
-    #     page.page_parsing()
-    #     if self.index == len(self.pages):
-    #         break
-
-    #     if args.pages == 0 and not args.onepage:
-    #         number_of_pages = len(self.pages)
-
-    # if args.map:
-    #     add_to_sitemap_file(self.pages)
-    # add_links_to_csv(self.links)
-    # add_to_debug_file(self.links)
-    # if args.statistics:
-    #     get_statistics(self.pages, self.internal_docs, self.internal_links, self.external_links)
 
 
 if __name__ == '__main__':
