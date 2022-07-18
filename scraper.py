@@ -1,4 +1,4 @@
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pprint import pprint
@@ -31,18 +31,23 @@ requests.packages.urllib3.disable_warnings()
 
 
 class ScrappedSite():
-    # pages = []
     links = []
     settings = None
     logger = None
 
-    def __init__(self, url):
+    def __init__(self, url, logger):
         #if (!is_valid(url))
         #    return
-        # self.logger = logger
+        self.logger = logger
         self.url = url
-        self.site_name = urlparse(url).netloc
-        self.origin = urlparse(url).scheme + '://' + self.site_name
+        self.parsed_url = urlparse(url)
+        self.site_name = self.parsed_url.netloc
+        self.origin = self.parsed_url.scheme + '://' + self.site_name
+        if self.parsed_url.path == '':
+            url_path = '/'
+            self.first_link = ScrappedInternalLink(url_path, self.logger, self.origin)
+        else:
+            self.first_link = ScrappedInternalLink(self.parsed_url.path, self.logger, self.origin)
 
 
     def get_origin(self):
@@ -50,42 +55,36 @@ class ScrappedSite():
 
 
     def crawl_links(self):
-        first_link = ScrappedInternalLink(self.url, self.origin, self.logger)
-        first_link.get_link_time = datetime.now()
-        self.links.append(first_link)
-        for link in self.links:
-            error_message = ''
+        self.links.append(self.first_link)
 
+        for link in self.links:
             if link.link_type != 1 or link.document_type is not None:
                 continue
 
-            # related_link_urls = 
-            # link.get_request()
-            # link.parse_text()
-            # if len(link.related_link_urls) == 0:
-            #     continue
-
-            response = link.get_request() # page links
+            response = link.get_request()
             if response.status_code >= 400:
                 continue
 
             url = response.url
+            url_parsed = urlparse(url)
             if url in [link.final_url for link \
                     in self.links if (type(link).__name__ == 'ScrappedInternalLink' \
                     and link.document_type is None)] \
                     and len(self.links) > 1:
-                # self.links.remove(link)
-                error_message = 'An empty url path. The URL may be repeated. Check link.'
-                link.error_message = error_message
+                link.error_message += 'The URL may be repeated.'
+                if url_parsed.path in ('', '/'):
+                    link.error_message += 'An empty URL path.'
                 continue
 
-            link.final_url = response.url
+            link.final_url = url
+            link.size_of_request = len(response.content)
             link.parse_text(response.text)
-            self.add_new_links(link, link.related_link_urls)
+            link.process_link_time = datetime.now()
+            self.add_new_links(link.related_link_urls)
 
 
-    def add_new_links(self, instance, urls):
-        for url in urls:
+    def add_new_links(self, urls):
+        for url in [link[0] for link in urls]:
             error_message = ''
             new_link = None
             
@@ -94,7 +93,7 @@ class ScrappedSite():
 
             if ' ' in url:
                 url = url.replace(' ', '')
-                error_message = 'A whitespace in the url adress.'
+                error_message += 'A whitespace in the url adress.'
 
             if url in [link.url for link in self.links]:
                 continue
@@ -102,46 +101,43 @@ class ScrappedSite():
             #
             if (re.compile(r'#\w*')).search(url) or urlparse(url).fragment:
                 continue
+
             # tel
             if (re.compile(r'\+\d+')).search(url) or 'tel' in url:
-                new_link = ScrappedLink(url, 5)
+                new_link = ScrappedLink(url, self.logger)
+                new_link.link_type = 5
 
             # mail
             elif 'mailto' in url:
-                new_link = ScrappedLink(url, 4)
+                new_link = ScrappedLink(url, self.logger)
+                new_link.link_type = 4
 
             # external
             elif self.site_name not in url and 'http' in url:
-                
                 new_link = ScrappedExternalLink(url, self.logger)
                 if any(doc_format in url for doc_format in docs_formats):
                     new_link.document_type = 2
-            
+
             # internal 
             elif (urlparse(url).netloc == '' or self.site_name in url):
-                link_url_path = urlparse(url).path
-                # if link_url_path in ('', '/'):
-                #     error_message = 'An empty url path. The URL may be repeated. Check link.'
-                #     continue
-                if link_url_path in [link.url for link in self.links]:
+                if urlparse(url).path in [link.url for link in self.links]:
                     continue
-                
-                new_link = ScrappedInternalLink(url, self.origin, self.logger)
+                if self.site_name in url:
+                    error_message += 'Site name in link.'
+
+                new_link = ScrappedInternalLink(url, self.logger, self.origin)
                 if any(doc_format in url for doc_format in docs_formats):
                     new_link.document_type = 2
             else:
                 continue
 
-            new_link.get_link_time = instance.get_link_time
             new_link.error_message = error_message
             self.links.append(new_link)
 
 
     def do_requests(self):
-        print(len([x.url for x in self.links if type(x).__name__ == 'ScrappedInternalLink' and x.document_type != 2]))
         not_requested_links = ([x for x in self.links if type(x).__name__ == 'ScrappedExternalLink' \
             or (type(x).__name__ == 'ScrappedInternalLink' and x.document_type is not None)])
-        print(len(not_requested_links))
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
             for url in not_requested_links:
@@ -156,48 +152,13 @@ class ScrappedSite():
             writer.writerow(['page', 'link', 'link_status', 'link_type',
                             'is_document', 'error_message'])
             for page in self.links:
-                writer.writerow([page.url, '', page.http_status, page.link_type, page.document_type, page.error_message])
                 if page.link_type == 1 and page.document_type is None:
-                    for link in page.related_link_urls:
+                    for link in [link[0] for link in page.related_link_urls]:
                         for link_obj in self.links:
                             if link == link_obj.url:
+                                if '%' in link:
+                                    link = unquote(link)
                                 writer.writerow([page.url, link, link_obj.http_status, link_obj.link_type, link_obj.document_type, link_obj.error_message])
-            print('done')
-
-
-
-            # for url in related_link_urls:
-            #     link_type = self.check_link(url)
-            #     if link_type == 1:
-            #         url = ScrappedInternalLink(url)
-            #         url.
-
-            #         #link <-> url
-            #         pass
-            #     elif link_type == 2:
-            #         url = ScrappedExternalLink(url)
-
-            #         pass
-            #     else:
-            #         url = ScrappedLink(url)
-
-            #     self.links.append(url)
-            #     ... 
-
-
-
-    # def crawl_links(self):
-    #     # if (not self.__is_valid):
-    #     #     self.logger.write("")
-    #     #     return
-
-    #     self.__redefine_input_url()
-    #     for link in self.links: # link = ScrappedLink(self.__root)
-    #         link.process()
-
-    #         link.check_link()
-    #         # if link.link_type == 1:
-    #         #     internal_link = 
 
 
     def __add_slash(self, url):
@@ -216,26 +177,23 @@ class ScrappedSite():
 
 class ScrappedLink():
     protocol = None
-    # link_type = None # 0 not defined 1 internal 2 external 3 anchor 4 email 5 phone
+    link_type = None # 0 not defined 1 internal 2 external 3 anchor 4 email 5 phone
     http_status = None
     document_type = None # 0 not defined 1 page 2 doc or pdf document 3 css 4 js 5 img ... 
     error_message = ''
     related_link_urls = []
-    get_link_time = ''
+    size_of_request = 0
     request_link_time = ''
     process_link_time = ''
 
-    def __init__(self, url, link_type):
+    def __init__(self, url, logger):
         self.url = url
-        self.link = urlparse(url).path
-        self.link_type = link_type
-        # self.url = url # https://www.example.com/page1
-        # self.__root = urlparse(url).scheme + '://' + urlparse(url).netloc # https://www.example.com
-        # self.site_name = urlparse(url).netloc # www.example.com
+        self.logger = logger
+        self.get_link_time = datetime.now()
+
 
     def get_request(self):
         self.logger.info("Processing " + self.url)
-
         self.request_link_time = datetime.now()
         response = requests.models.Response()
         try:
@@ -276,13 +234,12 @@ class ScrappedLink():
 
 class ScrappedInternalLink(ScrappedLink):
     link_type = 1
-    # page_text_hash = ''
     final_url = ''
 
-    def __init__(self, url, origin, logger):
-        self.url = url
-        self.origin = origin
-        self.logger = logger
+    def __init__(self, url, logger, site_url):
+        super().__init__(url, logger)
+        self.origin = site_url
+
 
         # if self.index > 1:
         #     self.add_to_links(self.page, 0, status, error_message)
@@ -290,7 +247,6 @@ class ScrappedInternalLink(ScrappedLink):
         # if self.status > 399:
         #     return
             # self.delete_from_pages(self.page)
-
 
 
     def parse_text(self, response_text):
@@ -304,29 +260,17 @@ class ScrappedInternalLink(ScrappedLink):
             # if args.empty:
             #     self.find_empty_pages(page_html)
 
-            self.related_link_urls = [link.get('href') for link in a_tags]
-            self.process_link_time = datetime.now()
+            self.related_link_urls = [[link.get('href'), link.text] for link in a_tags]
 
         except Exception as exc:
             self.logger.error('System Error: ' + f'{exc}')
-
-
-    # def _encode_page(self, page_code):
-    #     hash = (hashlib.sha256())
-    #     hash.update((f'{page_code}').encode())
-    #     hash = hash.hexdigest()
-    #     return hash
-
 
 
 
 class ScrappedExternalLink(ScrappedLink):
     link_type = 2
     def __init__(self, url, logger):
-        self.url = url
-        self.logger = logger
-
-
+        super().__init__(url, logger)
 
 
 
@@ -396,9 +340,9 @@ def main():
         logger.exception("not valid settings")
         return
  
-    site = ScrappedSite(settings.url)
+    site = ScrappedSite(settings.url, logger)
     site.settings = settings
-    site.logger = logger
+    # site.logger = logger
     site.crawl_links()
     site.do_requests()
     site.write_results()
