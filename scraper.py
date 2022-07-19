@@ -17,17 +17,14 @@ import os
 import re
 
 
-
 docs_formats = [
-                '.doc', 'docx', '.dot', '.od', '.pdf', '.csv',
-                '.rtf', '.txt', '.wps', '.xml', '.dbf', '.dif',
-                '.prn', '.slk', '.xl', '.xps', '.pot', '.pp'
-                ]
+    '.doc', 'docx', '.dot', '.od', '.pdf', '.csv',
+    '.rtf', '.txt', '.wps', '.xml', '.dbf', '.dif',
+    '.prn', '.slk', '.xl', '.xps', '.pot', '.pp'
+]
 docs_formats += [f.upper() for f in docs_formats]
 dirName = 'log'
 requests.packages.urllib3.disable_warnings()
-
-
 
 
 class ScrappedSite():
@@ -36,23 +33,23 @@ class ScrappedSite():
     logger = None
 
     def __init__(self, url, logger):
-        #if (!is_valid(url))
-        #    return
         self.logger = logger
         self.url = url
-        self.parsed_url = urlparse(url)
+        if 'http' not in self.url:
+            self.url = 'http://' + self.url
+        self.parsed_url = urlparse(self.url)
         self.site_name = self.parsed_url.netloc
         self.origin = self.parsed_url.scheme + '://' + self.site_name
         if self.parsed_url.path == '':
             url_path = '/'
-            self.first_link = ScrappedInternalLink(url_path, self.logger, self.origin)
+            self.first_link = ScrappedInternalLink(
+                url_path, self.logger, self.origin)
         else:
-            self.first_link = ScrappedInternalLink(self.parsed_url.path, self.logger, self.origin)
-
+            self.first_link = ScrappedInternalLink(
+                self.parsed_url.path, self.logger, self.origin)
 
     def get_origin(self):
         return self.origin
-
 
     def crawl_links(self):
         self.links.append(self.first_link)
@@ -67,9 +64,9 @@ class ScrappedSite():
 
             url = response.url
             url_parsed = urlparse(url)
-            if url in [link.final_url for link \
-                    in self.links if (type(link).__name__ == 'ScrappedInternalLink' \
-                    and link.document_type is None)] \
+            if url in [link.final_url for link
+                       in self.links if (type(link).__name__ == 'ScrappedInternalLink'
+                                         and link.document_type is None)] \
                     and len(self.links) > 1:
                 link.error_message += 'The URL may be repeated.'
                 if url_parsed.path in ('', '/'):
@@ -82,13 +79,12 @@ class ScrappedSite():
             link.process_link_time = datetime.now()
             self.add_new_links(link.related_link_urls)
 
-
     def add_new_links(self, urls):
         for url in [link[0] for link in urls]:
             error_message = ''
             new_link = None
-            
-            if url == None:
+
+            if url is None:
                 continue
 
             if ' ' in url:
@@ -118,7 +114,7 @@ class ScrappedSite():
                 if any(doc_format in url for doc_format in docs_formats):
                     new_link.document_type = 2
 
-            # internal 
+            # internal
             elif (urlparse(url).netloc == '' or self.site_name in url):
                 if urlparse(url).path in [link.url for link in self.links]:
                     continue
@@ -134,17 +130,15 @@ class ScrappedSite():
             new_link.error_message = error_message
             self.links.append(new_link)
 
-
     def do_requests(self):
-        not_requested_links = ([x for x in self.links if type(x).__name__ == 'ScrappedExternalLink' \
-            or (type(x).__name__ == 'ScrappedInternalLink' and x.document_type is not None)])
+        not_requested_links = ([x for x in self.links if type(x).__name__ == 'ScrappedExternalLink' or (
+            type(x).__name__ == 'ScrappedInternalLink' and x.document_type is not None)])
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
             for url in not_requested_links:
                 futures.append(executor.submit(url.get_request))
             for future in concurrent.futures.as_completed(futures):
                 future.result()
-
 
     def write_results(self):
         with open('links.csv', 'w') as file:
@@ -158,14 +152,17 @@ class ScrappedSite():
                             if link == link_obj.url:
                                 if '%' in link:
                                     link = unquote(link)
-                                writer.writerow([page.url, link, link_obj.http_status, link_obj.link_type, link_obj.document_type, link_obj.error_message])
-
+                                writer.writerow([page.url,
+                                                 link,
+                                                 link_obj.http_status,
+                                                 link_obj.link_type,
+                                                 link_obj.document_type,
+                                                 link_obj.error_message])
 
     def __add_slash(self, url):
         if url[-1] != '/':
             return url + '/'
         return url
-
 
     def __redefine_input_url(self):
         '''Redefine url input parameter'''
@@ -173,13 +170,11 @@ class ScrappedSite():
         self.__root = self.__root[0:(self.__root.find('/', 8))]
 
 
-
-
 class ScrappedLink():
     protocol = None
     link_type = None # 0 not defined 1 internal 2 external 3 anchor 4 email 5 phone
-    http_status = None
-    document_type = None # 0 not defined 1 page 2 doc or pdf document 3 css 4 js 5 img ... 
+    http_status = None # 0 not defined 1 page 2 doc or pdf document 3 css 4 js 5 img ...
+    document_type = None
     error_message = ''
     related_link_urls = []
     size_of_request = 0
@@ -191,14 +186,14 @@ class ScrappedLink():
         self.logger = logger
         self.get_link_time = datetime.now()
 
-
     def get_request(self):
         self.logger.info("Processing " + self.url)
         self.request_link_time = datetime.now()
         response = requests.models.Response()
         try:
             if urlparse(self.url).netloc == '':
-                response = requests.get(self.origin + self.url, verify=False, timeout=4)
+                response = requests.get(
+                    self.origin + self.url, verify=False, timeout=4)
             else:
                 response = requests.get(self.url, verify=False, timeout=4)
 
@@ -221,15 +216,15 @@ class ScrappedLink():
             response.status_code = 400
             response.reason = exc
             self.logger.error(f'{exc}')
+        print(self.origin + self.url)
 
         self.http_status = response.status_code
         if (self.http_status > 399):
-            self.error_message = str(response.reason) + ' | ' + str(self.error_message)
+            self.error_message = str(response.reason) + \
+                ' | ' + str(self.error_message)
 
         self.process_link_time = datetime.now()
         return response
-
-
 
 
 class ScrappedInternalLink(ScrappedLink):
@@ -240,14 +235,12 @@ class ScrappedInternalLink(ScrappedLink):
         super().__init__(url, logger)
         self.origin = site_url
 
-
         # if self.index > 1:
         #     self.add_to_links(self.page, 0, status, error_message)
 
         # if self.status > 399:
         #     return
-            # self.delete_from_pages(self.page)
-
+        # self.delete_from_pages(self.page)
 
     def parse_text(self, response_text):
         try:
@@ -260,37 +253,50 @@ class ScrappedInternalLink(ScrappedLink):
             # if args.empty:
             #     self.find_empty_pages(page_html)
 
-            self.related_link_urls = [[link.get('href'), link.text] for link in a_tags]
+            self.related_link_urls = [
+                [link.get('href'), link.text] for link in a_tags]
 
         except Exception as exc:
             self.logger.error('System Error: ' + f'{exc}')
 
 
-
 class ScrappedExternalLink(ScrappedLink):
     link_type = 2
+
     def __init__(self, url, logger):
         super().__init__(url, logger)
 
 
-
 def define_args():
-    arg_parser = argparse.ArgumentParser(description='A program for self parsing.')
+    arg_parser = argparse.ArgumentParser(
+        description='A program for self parsing.')
     arg_parser.add_argument("-p", "--pages", help="Number of pages to parse, "
                             "default is all pages.", default=0, type=int)
-    arg_parser.add_argument("-s", "--statistics", help="Add statistics of program "
-                            "execution at the end of output.",
-                            default=False, action="store_true")
-    arg_parser.add_argument("-m", "--map", help="Add sitemap file 'sitemap.csv' "
-                            "to the current folder.", default=False,
-                            action="store_true")
+    arg_parser.add_argument(
+        "-s",
+        "--statistics",
+        help="Add statistics of program "
+        "execution at the end of output.",
+        default=False,
+        action="store_true")
+    arg_parser.add_argument(
+        "-m",
+        "--map",
+        help="Add sitemap file 'sitemap.csv' "
+        "to the current folder.",
+        default=False,
+        action="store_true")
     arg_parser.add_argument("-o", "--onepage", help="Parse only one page and "
                             "all links on it. If this argument is included, "
                             "--page is ignored.", default=False,
                             action="store_true")
-    arg_parser.add_argument("-e", "--errors", help="Outputs errors on self into "
-                            "file 'links.csv'.", default=False,
-                            action="store_true")
+    arg_parser.add_argument(
+        "-e",
+        "--errors",
+        help="Outputs errors on self into "
+        "file 'links.csv'.",
+        default=False,
+        action="store_true")
     arg_parser.add_argument("-u", "--url", help="Add self url you "
                             "want to parse. Required argument. "
                             "Example: https://example.com.",
@@ -300,8 +306,12 @@ def define_args():
     arg_parser.add_argument("-d", "--duplicate", help="Find"
                             "duplicated pages on self.",
                             default=False, action="store_true")
-    arg_parser.add_argument("--exdir", help="Excludes the page and the "
-                            "directory of nested pages.", nargs="+", default=[])
+    arg_parser.add_argument(
+        "--exdir",
+        help="Excludes the page and the "
+        "directory of nested pages.",
+        nargs="+",
+        default=[])
     arg_parser.add_argument("--expage", help="Excludes the specified page.",
                             nargs="+", default=[])
     return arg_parser.parse_args()
@@ -339,7 +349,7 @@ def main():
     if not settings:
         logger.exception("not valid settings")
         return
- 
+
     site = ScrappedSite(settings.url, logger)
     site.settings = settings
     # site.logger = logger
