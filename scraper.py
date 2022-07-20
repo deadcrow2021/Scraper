@@ -36,7 +36,7 @@ class ScrappedSite():
         self.logger = logger
         self.url = url
         if 'http' not in self.url:
-            self.url = 'http://' + self.url
+            self.url = 'https://' + self.url
         self.parsed_url = urlparse(self.url)
         self.site_name = self.parsed_url.netloc
         self.origin = self.parsed_url.scheme + '://' + self.site_name
@@ -51,10 +51,14 @@ class ScrappedSite():
     def get_origin(self):
         return self.origin
 
+
     def crawl_links(self):
         self.links.append(self.first_link)
+        number_of_pages = self.settings.pages
+        number_of_parsed_pages = 0
 
         for link in self.links:
+
             if link.link_type != 1 or link.document_type is not None:
                 continue
 
@@ -62,6 +66,7 @@ class ScrappedSite():
             if response.status_code >= 400:
                 continue
 
+            number_of_parsed_pages += 1
             url = response.url
             url_parsed = urlparse(url)
             if url in [link.final_url for link
@@ -78,6 +83,21 @@ class ScrappedSite():
             link.parse_text(response.text)
             link.process_link_time = datetime.now()
             self.add_new_links(link.related_link_urls)
+
+            if self.settings.onepage:
+                links_to_process = [link for link in self.links if type(link).__name__ != 'ScrappedLink'][1:]
+                for onepage_link in links_to_process:
+                    response = onepage_link.get_request()
+                    if response.status_code >= 400:
+                        continue
+                    onepage_link.final_url = response.url
+                    onepage_link.size_of_request = len(response.content)
+                    onepage_link.process_link_time = datetime.now()
+                break
+
+            if number_of_pages and number_of_parsed_pages == number_of_pages:
+                break
+
 
     def add_new_links(self, urls):
         for url in [link[0] for link in urls]:
@@ -130,6 +150,7 @@ class ScrappedSite():
             new_link.error_message = error_message
             self.links.append(new_link)
 
+
     def do_requests(self):
         not_requested_links = ([x for x in self.links if type(x).__name__ == 'ScrappedExternalLink' or (
             type(x).__name__ == 'ScrappedInternalLink' and x.document_type is not None)])
@@ -139,6 +160,7 @@ class ScrappedSite():
                 futures.append(executor.submit(url.get_request))
             for future in concurrent.futures.as_completed(futures):
                 future.result()
+
 
     def write_results(self):
         with open('links.csv', 'w') as file:
@@ -159,15 +181,6 @@ class ScrappedSite():
                                                  link_obj.document_type,
                                                  link_obj.error_message])
 
-    def __add_slash(self, url):
-        if url[-1] != '/':
-            return url + '/'
-        return url
-
-    def __redefine_input_url(self):
-        '''Redefine url input parameter'''
-        self.__root = self.__add_slash(self.__root)
-        self.__root = self.__root[0:(self.__root.find('/', 8))]
 
 
 class ScrappedLink():
@@ -216,7 +229,6 @@ class ScrappedLink():
             response.status_code = 400
             response.reason = exc
             self.logger.error(f'{exc}')
-        print(self.origin + self.url)
 
         self.http_status = response.status_code
         if (self.http_status > 399):
@@ -242,6 +254,7 @@ class ScrappedInternalLink(ScrappedLink):
         #     return
         # self.delete_from_pages(self.page)
 
+
     def parse_text(self, response_text):
         try:
             page_html = BeautifulSoup(response_text, 'lxml')
@@ -260,6 +273,7 @@ class ScrappedInternalLink(ScrappedLink):
             self.logger.error('System Error: ' + f'{exc}')
 
 
+
 class ScrappedExternalLink(ScrappedLink):
     link_type = 2
 
@@ -267,11 +281,15 @@ class ScrappedExternalLink(ScrappedLink):
         super().__init__(url, logger)
 
 
+
 def define_args():
     arg_parser = argparse.ArgumentParser(
         description='A program for self parsing.')
-    arg_parser.add_argument("-p", "--pages", help="Number of pages to parse, "
-                            "default is all pages.", default=0, type=int)
+    arg_parser.add_argument(
+        "-p", "--pages",
+        help="Number of pages to parse, "
+        "default is all pages.",
+        default=0, type=int)
     arg_parser.add_argument(
         "-s",
         "--statistics",
@@ -286,10 +304,12 @@ def define_args():
         "to the current folder.",
         default=False,
         action="store_true")
-    arg_parser.add_argument("-o", "--onepage", help="Parse only one page and "
-                            "all links on it. If this argument is included, "
-                            "--page is ignored.", default=False,
-                            action="store_true")
+    arg_parser.add_argument(
+        "-o", "--onepage",
+        help="Parse only one page and "
+        "all links on it. If this argument is included, "
+        "--page is ignored.", default=False,
+        action="store_true")
     arg_parser.add_argument(
         "-e",
         "--errors",
@@ -297,23 +317,27 @@ def define_args():
         "file 'links.csv'.",
         default=False,
         action="store_true")
-    arg_parser.add_argument("-u", "--url", help="Add self url you "
-                            "want to parse. Required argument. "
-                            "Example: https://example.com.",
-                            type=str, required=True)
-    arg_parser.add_argument("--empty", help="Find empty pages "
-                            "by the inputted class of HTML tag.")
-    arg_parser.add_argument("-d", "--duplicate", help="Find"
-                            "duplicated pages on self.",
-                            default=False, action="store_true")
+    arg_parser.add_argument(
+        "-u", "--url", help="Add self url you "
+        "want to parse. Required argument. "
+        "Example: https://example.com.",
+        type=str, required=True)
+    arg_parser.add_argument(
+        "--empty", help="Find empty pages "
+        "by the inputted class of HTML tag.")
+    arg_parser.add_argument(
+        "-d", "--duplicate", help="Find"
+        "duplicated pages on self.",
+        default=False, action="store_true")
     arg_parser.add_argument(
         "--exdir",
         help="Excludes the page and the "
         "directory of nested pages.",
         nargs="+",
         default=[])
-    arg_parser.add_argument("--expage", help="Excludes the specified page.",
-                            nargs="+", default=[])
+    arg_parser.add_argument(
+        "--expage", help="Excludes the specified page.",
+        nargs="+", default=[])
     return arg_parser.parse_args()
 
 
