@@ -31,11 +31,19 @@ class ScrappedSite():
     links = []
     settings = None
     logger = None
+    statistics = {
+        'internal_links': 0,
+        'internal_docs': 0,
+        'external_links': 0,
+        'external_docs': 0,
+        'other_links': 0
+    }
 
     def __init__(self, url, logger, settings):
         self.logger = logger
         self.settings = settings
         self.url = url
+        self.start_time = time.time()
         if 'http' not in self.url:
             self.url = 'https://' + self.url
         self.parsed_url = urlparse(self.url)
@@ -55,6 +63,7 @@ class ScrappedSite():
 
     def crawl_links(self):
         self.links.append(self.first_link)
+        self.statistics['internal_links'] += 1
         number_of_pages = self.settings.pages
         number_of_parsed_pages = 0
 
@@ -84,6 +93,7 @@ class ScrappedSite():
             link.parse_text(response.text)
             link.process_link_time = datetime.now()
             self.add_new_links(link.related_link_urls)
+            self.statistics['internal_links'] += 1
 
             if self.settings.onepage:
                 links_to_process = [link for link in self.links if type(link).__name__ != 'ScrappedLink'][1:]
@@ -96,7 +106,7 @@ class ScrappedSite():
                     onepage_link.process_link_time = datetime.now()
                 break
 
-            if number_of_pages and number_of_parsed_pages == number_of_pages:
+            if number_of_pages and number_of_parsed_pages >= number_of_pages:
                 break
 
 
@@ -181,6 +191,28 @@ class ScrappedSite():
                                                  link_obj.link_type,
                                                  link_obj.document_type,
                                                  link_obj.error_message])
+
+
+    def get_statistics(self):
+        self.logger.info(f'Time: {time.time() - self.start_time} s')
+
+        for link_obj in self.links:
+            if link_obj.link_type == 1:
+                if link_obj.document_type is not None:
+                    self.statistics['internal_docs'] += 1
+            elif link_obj.link_type == 2:
+                if link_obj.document_type is None:
+                    self.statistics['external_links'] += 1
+                else:
+                    self.statistics['external_docs'] += 1
+            else:
+                self.statistics['other_links'] += 1
+
+        self.logger.info(f'Internal links: {self.statistics["internal_links"]}')
+        self.logger.info(f'Internal documents: {self.statistics["internal_docs"]}')
+        self.logger.info(f'External links: {self.statistics["external_links"]}')
+        self.logger.info(f'External documents: {self.statistics["external_docs"]}')
+        self.logger.info(f'Other links: {self.statistics["other_links"]}')
 
 
 
@@ -312,13 +344,6 @@ def define_args():
         "default is all pages.",
         default=0, type=int)
     arg_parser.add_argument(
-        "-s",
-        "--statistics",
-        help="Add statistics of program "
-        "execution at the end of output.",
-        default=False,
-        action="store_true")
-    arg_parser.add_argument(
         "-m",
         "--map",
         help="Add sitemap file 'sitemap.csv' "
@@ -347,8 +372,9 @@ def define_args():
         "--empty", help="Find empty pages "
         "by the inputted class of HTML tag.")
     arg_parser.add_argument(
-        "-h", "--hash", help="Find html tag's "
-        "content by class name and encode it.")
+        "--hash", help="Find html tag's "
+        "content by class name and encode it.",
+        type=str, default='')
     arg_parser.add_argument(
         "-d", "--duplicate", help="Find"
         "duplicated pages on self.",
@@ -398,12 +424,11 @@ def main():
         logger.exception("not valid settings")
         return
 
-    site = ScrappedSite(settings.url, logger)
-    site.settings = settings
-    # site.logger = logger
+    site = ScrappedSite(settings.url, logger, settings)
     site.crawl_links()
     site.do_requests()
     site.write_results()
+    site.get_statistics()
 
 
 if __name__ == '__main__':
