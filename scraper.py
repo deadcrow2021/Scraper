@@ -32,8 +32,9 @@ class ScrappedSite():
     settings = None
     logger = None
 
-    def __init__(self, url, logger):
+    def __init__(self, url, logger, settings):
         self.logger = logger
+        self.settings = settings
         self.url = url
         if 'http' not in self.url:
             self.url = 'https://' + self.url
@@ -43,10 +44,10 @@ class ScrappedSite():
         if self.parsed_url.path == '':
             url_path = '/'
             self.first_link = ScrappedInternalLink(
-                url_path, self.logger, self.origin)
+                url_path, self.logger, self.settings, self.origin)
         else:
             self.first_link = ScrappedInternalLink(
-                self.parsed_url.path, self.logger, self.origin)
+                self.parsed_url.path, self.logger, self.settings, self.origin)
 
     def get_origin(self):
         return self.origin
@@ -120,17 +121,17 @@ class ScrappedSite():
 
             # tel
             if (re.compile(r'\+\d+')).search(url) or 'tel' in url:
-                new_link = ScrappedLink(url, self.logger)
+                new_link = ScrappedLink(url, self.logger, self.settings)
                 new_link.link_type = 5
 
             # mail
             elif 'mailto' in url:
-                new_link = ScrappedLink(url, self.logger)
+                new_link = ScrappedLink(url, self.logger, self.settings)
                 new_link.link_type = 4
 
             # external
             elif self.site_name not in url and 'http' in url:
-                new_link = ScrappedExternalLink(url, self.logger)
+                new_link = ScrappedExternalLink(url, self.logger, self.settings)
                 if any(doc_format in url for doc_format in docs_formats):
                     new_link.document_type = 2
 
@@ -141,7 +142,7 @@ class ScrappedSite():
                 if self.site_name in url:
                     error_message += 'Site name in link.'
 
-                new_link = ScrappedInternalLink(url, self.logger, self.origin)
+                new_link = ScrappedInternalLink(url, self.logger, self.settings, self.origin)
                 if any(doc_format in url for doc_format in docs_formats):
                     new_link.document_type = 2
             else:
@@ -193,10 +194,12 @@ class ScrappedLink():
     size_of_request = 0
     request_link_time = ''
     process_link_time = ''
+    page_hash = ''
 
-    def __init__(self, url, logger):
+    def __init__(self, url, logger, settings):
         self.url = url
         self.logger = logger
+        self.settings = settings
         self.get_link_time = datetime.now()
 
     def get_request(self):
@@ -243,8 +246,8 @@ class ScrappedInternalLink(ScrappedLink):
     link_type = 1
     final_url = ''
 
-    def __init__(self, url, logger, site_url):
-        super().__init__(url, logger)
+    def __init__(self, url, logger, settings, site_url):
+        super().__init__(url, logger, settings)
         self.origin = site_url
 
         # if self.index > 1:
@@ -268,17 +271,35 @@ class ScrappedInternalLink(ScrappedLink):
 
             self.related_link_urls = [
                 [link.get('href'), link.text] for link in a_tags]
+            self.encode_page(response_text)
 
         except Exception as exc:
             self.logger.error('System Error: ' + f'{exc}')
+
+    
+    def encode_page(self, page_text):
+        page_html = BeautifulSoup(page_text, 'lxml')
+        if self.settings.hash:
+            for tag in ['div', 'section', 'body']:
+                content = page_html.find_all(tag, class_=f'{self.settings.hash}')
+                if content:
+                    content = content[0]
+                    break
+        else:
+            content = page_text
+
+
+        hash = hashlib.sha256()
+        hash.update(f'{content}'.encode())
+        self.page_hash = hash.hexdigest()
 
 
 
 class ScrappedExternalLink(ScrappedLink):
     link_type = 2
 
-    def __init__(self, url, logger):
-        super().__init__(url, logger)
+    def __init__(self, url, logger, settings):
+        super().__init__(url, logger, settings)
 
 
 
@@ -325,6 +346,9 @@ def define_args():
     arg_parser.add_argument(
         "--empty", help="Find empty pages "
         "by the inputted class of HTML tag.")
+    arg_parser.add_argument(
+        "-h", "--hash", help="Find html tag's "
+        "content by class name and encode it.")
     arg_parser.add_argument(
         "-d", "--duplicate", help="Find"
         "duplicated pages on self.",
