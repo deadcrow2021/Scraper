@@ -76,6 +76,10 @@ class ScrappedSite():
             if response.status_code >= 400:
                 continue
 
+            if self.settings.exparams and \
+                any(param.lower() in urlparse(link.final_url).query.lower() for param in self.settings.exparams):
+                continue
+
             number_of_parsed_pages += 1
             url = response.url
             url_parsed = urlparse(url)
@@ -213,6 +217,17 @@ class ScrappedSite():
         self.logger.info(f'External links: {self.statistics["external_links"]}')
         self.logger.info(f'External documents: {self.statistics["external_docs"]}')
         self.logger.info(f'Other links: {self.statistics["other_links"]}')
+
+
+    def write_sitemap(self):
+        with open('sitemap.csv', 'w') as file:
+            writer = csv.writer(file, delimiter=';')
+            writer.writerow(['page'])
+            for page in self.links:
+                if page.link_type == 1 and page.document_type is None:
+                    if page.final_url == '':
+                        continue
+                    writer.writerow([page.final_url.replace(self.origin, '')]) 
 
 
 
@@ -388,6 +403,8 @@ def define_args():
     arg_parser.add_argument(
         "--expage", help="Excludes the specified page.",
         nargs="+", default=[])
+    arg_parser.add_argument("--exparams", help="Excludes the specified url "
+                        "parameters out of parsing.", nargs="+", default=[])
     return arg_parser.parse_args()
 
 
@@ -429,6 +446,7 @@ def main():
     site.do_requests()
     site.write_results()
     site.get_statistics()
+    site.write_sitemap()
 
 
 if __name__ == '__main__':
